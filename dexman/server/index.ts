@@ -36,7 +36,7 @@ class DexRoom extends Room {
 const server = new Server({
   transport: new WebSocketTransport({ pingInterval: 2000, pingMaxRetries: 2 }),
   express: app => {
-    app.get("/health", (_req, res) => res.json({ ok: true, service: "dexman-lobby", stage: "connection-test" }));
+    app.get("/health", (_req, res) => res.set("Access-Control-Allow-Origin", "*").set("Cache-Control", "no-store").json({ ok: true, service: "dexman-lobby", stage: "connection-test" }));
   },
 });
 server.define("dexman", DexRoom);
