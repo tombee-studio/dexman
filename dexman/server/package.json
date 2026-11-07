@@ -1,0 +1,9 @@
+{
+  "name": "dexman-server",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0 <23" },
+  "scripts": { "start": "tsx index.ts", "test": "tsx --test lobby.test.ts", "smoke": "tsx smoke.ts" },
+  "dependencies": { "@colyseus/core": "^0.18.0", "@colyseus/ws-transport": "^0.18.0", "@colyseus/sdk": "^0.18.0", "tsx": "^4.20.0" },
+  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.9.0" }
+}

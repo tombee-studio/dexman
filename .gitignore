@@ -1,0 +1,11 @@
+**/node_modules/
+**/.runtime/
+**/.sites-runtime/
+**/.wrangler/
+**/dist/
+**/.next/
+**/.vinext/
+.env*
+**/.env*
+*.log
+.DS_Store
