@@ -6,7 +6,7 @@ import "./lobby.css";
 import Arena from "./Arena";
 import type { MatchState, GameEvent, Skill } from "../lib/game-protocol";
 
-type Player = { id: string; name: string; ready: boolean; team: "Glitch" | "Patch" | ""; skill: Skill };
+type Player = { id: string; name: string; ready: boolean; team: "Glitch" | "Patch" | ""; skill: Skill; bot?: boolean };
 type Snapshot = { roomId: string; protocol: number; spectators: Player[]; game: MatchState | null; phase: "waiting" | "countdown" | "playing" | "result"; host: string; players: Player[]; startsAt: number; serverNow: number };
 type Log = { id: number; time: string; text: string };
 const ENDPOINT = import.meta.env.VITE_GAME_SERVER || window.location.origin;
@@ -36,6 +36,10 @@ export default function Home() {
   const [latestEvent,setLatestEvent] = useState<(GameEvent & { matchId: string }) | null>(null);
   const seenEvents = useRef(new Set<string>());
   const lastPacket = useRef(Date.now());
+  const clockTimer=useRef<ReturnType<typeof setInterval>|null>(null);
+  const syncedOffset=useRef<number|null>(null);
+  const bestRtt=useRef(Infinity);
+  function stopClock(){if(clockTimer.current)clearInterval(clockTimer.current);clockTimer.current=null;}
   function send(type: string,value?: unknown) { roomRef.current?.send(type,value); }
   function ingest(event: GameEvent, matchId: string, startedAt: number) {
     const key = `${matchId}:${event.id}`;
@@ -58,7 +62,7 @@ export default function Home() {
     try { setName(localStorage.getItem("dexman.name") ?? ""); } catch {}
     setMounted(true);
     const interval = window.setInterval(() => setClock(Date.now()), 100);
-    return () => { clearInterval(interval); attempt.current++; controller.current?.abort(); void roomRef.current?.leave(); };
+    return () => { stopClock(); clearInterval(interval); attempt.current++; controller.current?.abort(); void roomRef.current?.leave(); };
   }, []);
   useEffect(() => { logEnd.current?.scrollIntoView({ block: "nearest" }); }, [logs, showLogs]);
 
@@ -84,7 +88,7 @@ export default function Home() {
     }
     previous.current = state;
     for(const event of state.game?.events ?? []) ingest(event,state.game!.matchId,state.game!.startedAt);
-    setOffset(state.serverNow - Date.now());
+    if(syncedOffset.current===null)setOffset(state.serverNow-Date.now());
     setSnapshot(state);
     readyPending.current = false;
     setPending(false);
@@ -111,7 +115,7 @@ export default function Home() {
           const response = await fetch(`${ENDPOINT}/health`, { signal: AbortSignal.any([abort.signal, AbortSignal.timeout(12000)]), cache: "no-store" });
           if(response.ok) {
             const health = await response.json() as {ok?:boolean;protocol?:number};
-            if(health.ok && health.protocol===2) { healthy=true;break; }
+            if(health.ok && health.protocol===3) { healthy=true;break; }
           }
         } catch (e) { if (abort.signal.aborted) throw e; }
         if (current !== attempt.current) return;
@@ -130,6 +134,18 @@ export default function Home() {
       setSelf(room.sessionId); setCode(room.roomId);
       setLogs([]); seenEvents.current.clear(); log("session established. awaiting snapshot.");
       room.onMessage("snapshot", receive);
+      syncedOffset.current=null;bestRtt.current=Infinity;stopClock();
+      room.onMessage("pong",(reply:{sentAt:number;serverNow:number})=>{
+        const received=Date.now(),rtt=received-reply.sentAt;
+        if(!Number.isFinite(rtt)||rtt<0||rtt>3000)return;
+        bestRtt.current=Math.min(bestRtt.current,rtt);
+        if(rtt>bestRtt.current*1.5+20)return;
+        const measured=reply.serverNow-(reply.sentAt+received)/2;
+        const next=syncedOffset.current===null?measured:syncedOffset.current*.8+measured*.2;
+        syncedOffset.current=next;setOffset(next);
+      });
+      clockTimer.current=setInterval(()=>{if(roomRef.current===room)room.send("ping",Date.now());},2000);
+      room.send("ping",Date.now());
       room.onMessage("event", (event: GameEvent & {matchId:string})=>{
         ingest(event,event.matchId,previous.current?.game?.startedAt ?? event.at);
         setLatestEvent(event);
@@ -138,7 +154,7 @@ export default function Home() {
       room.onError((_code, detail) => setError(detail || "通信エラーが発生しました。"));
       room.onLeave(() => {
         if (roomRef.current !== room) return;
-        roomRef.current = null; previous.current = null;
+        stopClock(); roomRef.current = null; previous.current = null;
         setSnapshot(null); setSelf(""); setPending(false);
         setError("接続が切れました。ルームが残っている場合はコードで再参加してください。");
         log("connection closed.");
@@ -157,6 +173,7 @@ export default function Home() {
     }
   }
   function leave() {
+    stopClock(); syncedOffset.current=null;
     attempt.current++; controller.current?.abort(); controller.current = null;
     const room = roomRef.current; roomRef.current = null;
     void room?.leave(); previous.current = null;
@@ -190,14 +207,14 @@ export default function Home() {
       <header className="topbar"><a className="brand" href="/" aria-label="Dexman ホーム"><span className="brand-mark">&gt;_</span> DEXMAN<span className="version">ARENA / 01</span></a><span className="connection"><i className={snapshot ? "online" : ""} />{snapshot ? "CONNECTED" : busy ? "CONNECTING" : "STANDBY"}</span></header>
       <div className={`workspace ${snapshot?.game ? "match-mode" : ""}`}>
         <section className="intro"><div><p className="eyebrow">MULTIPLAYER CODE ARENA</p><h1>バグを広げるか。<br />世界を直すか<span className="mint">。</span></h1><p className="subtitle">Glitch × Patch。4人で集まり、2対2のコードバトルへ。</p></div><div className="match-label"><span>2 <em>vs</em> 2</span><small>PC BROWSER / ONLINE</small></div></section>
-        {snapshot?.game ? <><div className="match-toolbar"><span>ROOM <code>{snapshot.roomId}</code> · 観戦 {snapshot.spectators.length}人</span><div><button className="secondary" onClick={copyInvite}>招待リンク ↗</button><button className="text-button" onClick={leave}>退出する</button></div></div><Arena key={snapshot.game.matchId} game={snapshot.game} self={self} phase={phase} now={snapshot.game.winner ? snapshot.game.finishedAt : clock+offset} host={snapshot.host===self} stale={clock-lastPacket.current>5000} event={latestEvent} logPanel={terminal} send={send}/><div className="status-messages" aria-live="polite">{message&&<p className="notice">{message}</p>}{error&&<p className="error">{error}</p>}</div></> : <div className="main-grid">
+        {snapshot?.game ? <><div className="match-toolbar"><span>ROOM <code>{snapshot.roomId}</code> · 観戦 {snapshot.spectators.length}人</span><div>{snapshot.host===self&&snapshot.players.some(p=>p.bot)&&<button className="secondary" onClick={()=>send("endDebug")}>テストを終了</button>}<button className="secondary" onClick={copyInvite}>招待リンク ↗</button><button className="text-button" onClick={leave}>退出する</button></div></div><Arena key={snapshot.game.matchId} game={snapshot.game} self={self} phase={phase} now={snapshot.game.winner ? snapshot.game.finishedAt : clock+offset} serverNow={snapshot.serverNow} clockOffset={offset} host={snapshot.host===self} stale={clock-lastPacket.current>5000} event={latestEvent} logPanel={terminal} send={send}/><div className="status-messages" aria-live="polite">{message&&<p className="notice">{message}</p>}{error&&<p className="error">{error}</p>}</div></> : <div className="main-grid">
           <section className="lobby-panel panel">
             <div className="panel-heading"><h2><span className="section-number">01</span> ルーム</h2><span className="chip">{phase === "playing" ? "接続確認完了" : phase === "countdown" ? "チーム確定" : "参加者を募集中"}</span></div>
-            {!snapshot ? <div className="entry-form"><label htmlFor="name">プレイヤー名 <span>最大20文字</span></label><input id="name" autoComplete="nickname" placeholder="例：Dex Coder" maxLength={20} value={name} disabled={busy || !mounted} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void connect(code.trim() ? "join" : "create"); }} /><button className="primary create" disabled={busy || !name.trim()} onClick={() => void connect("create")}>新しいルームを作成 <span>↗</span></button><div className="divider"><span>またはコードで参加</span></div><label htmlFor="code">ルームコード</label><div className="join-row"><input id="code" placeholder="共有されたコード" value={code} disabled={busy} onChange={e => setCode(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void connect("join"); }} /><button className="secondary" disabled={busy || !name.trim() || !code.trim()} onClick={() => void connect("join")}>参加 →</button></div>{busy && <button className="text-button" onClick={leave}>接続をキャンセル</button>}<p className="entry-note">アカウント登録不要。名前を入力して参加できます。</p></div> : <div className="room-details"><p className="field-label">ROOM CODE</p><div className="room-code"><code>{snapshot.roomId}</code><button className="secondary" onClick={copyInvite}>招待リンクをコピー ↗</button></div><p className="room-help">友達にリンクかコードを共有してください。<br />4人全員の準備完了で、自動的にチームが決まります。</p>{me&&<div className="skill-picker"><label>スキルを選択</label><div className="skill-options">{(["Dash","Guard","Push"] as const).map(skill=><button key={skill} className={me.skill===skill?"selected":""} onClick={()=>send("selectSkill",skill)}>{skill}</button>)}</div><p className="skill-help">{me.skill==="Dash"?"2マス素早く移動。再使用8秒。":me.skill==="Guard"?"1秒間、敵の爆風を1回防御。再使用15秒。":"目の前のキューブを最大3マス押す。再使用10秒。"}</p></div>}{!me&&<p className="spectator-label">観戦枠です。次の試合で空席があれば参加できます。</p>}<div className="progress-label"><span>READY CHECK</span><b>{readyCount}<span> / 4</span></b></div><div className="progress-track"><div style={{ width: `${readyCount * 25}%` }} /></div>{phase === "waiting" ? <button className={`primary ready-button ${me?.ready ? "is-ready" : ""}`} disabled={pending || !me} onClick={toggleReady}>{pending ? "同期中…" : me?.ready ? "✓ 準備完了 — クリックで解除" : "準備完了にする →"}</button> : <div className="launch-state" aria-live="polite">{phase === "countdown" ? <>開始まで <strong>{countdown}</strong> 秒</> : <>✓ 4人の接続・チーム分け完了</>}</div>}<button className="text-button leave" onClick={leave}>ルームから退出</button></div>}
+            {!snapshot ? <div className="entry-form"><label htmlFor="name">プレイヤー名 <span>最大20文字</span></label><input id="name" autoComplete="nickname" placeholder="例：Dex Coder" maxLength={20} value={name} disabled={busy || !mounted} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void connect(code.trim() ? "join" : "create"); }} /><button className="primary create" disabled={busy || !name.trim()} onClick={() => void connect("create")}>新しいルームを作成 <span>↗</span></button><div className="divider"><span>またはコードで参加</span></div><label htmlFor="code">ルームコード</label><div className="join-row"><input id="code" placeholder="共有されたコード" value={code} disabled={busy} onChange={e => setCode(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void connect("join"); }} /><button className="secondary" disabled={busy || !name.trim() || !code.trim()} onClick={() => void connect("join")}>参加 →</button></div>{busy && <button className="text-button" onClick={leave}>接続をキャンセル</button>}<p className="entry-note">アカウント登録不要。名前を入力して参加できます。</p></div> : <div className="room-details"><p className="field-label">ROOM CODE</p><div className="room-code"><code>{snapshot.roomId}</code><button className="secondary" onClick={copyInvite}>招待リンクをコピー ↗</button></div><p className="room-help">友達にリンクかコードを共有してください。<br />4人全員の準備完了で、自動的にチームが決まります。</p>{me&&<div className="skill-picker"><label>スキルを選択</label><div className="skill-options">{(["Dash","Guard","Push"] as const).map(skill=><button key={skill} className={me.skill===skill?"selected":""} onClick={()=>send("selectSkill",skill)}>{skill}</button>)}</div><p className="skill-help">{me.skill==="Dash"?"2マス素早く移動。再使用8秒。":me.skill==="Guard"?"1秒間、敵の爆風を1回防御。再使用15秒。":"目の前のキューブを最大3マス押す。再使用10秒。"}</p></div>}{!me&&<p className="spectator-label">観戦枠です。次の試合で空席があれば参加できます。</p>}{phase==="waiting"&&snapshot.host===self&&<div className="debug-controls">{snapshot.players.some(p=>p.bot)?<button className="secondary" onClick={()=>send("removeBots")}>CPUを外して通常の待機に戻す</button>:snapshot.players.length===1&&snapshot.spectators.length===0?<><button className="secondary" onClick={()=>send("debugStart")}>▶ CPU3人でテスト</button><p>1人用デバッグ。CPUを補充し、3秒後に開始します。</p></>:null}</div>}<div className="progress-label"><span>READY CHECK</span><b>{readyCount}<span> / 4</span></b></div><div className="progress-track"><div style={{ width: `${readyCount * 25}%` }} /></div>{phase === "waiting" ? <button className={`primary ready-button ${me?.ready ? "is-ready" : ""}`} disabled={pending || !me} onClick={toggleReady}>{pending ? "同期中…" : me?.ready ? "✓ 準備完了 — クリックで解除" : "準備完了にする →"}</button> : <div className="launch-state" aria-live="polite">{phase === "countdown" ? <>開始まで <strong>{countdown}</strong> 秒</> : <>✓ 4人の接続・チーム分け完了</>}</div>}<button className="text-button leave" onClick={leave}>ルームから退出</button></div>}
             <div className="status-messages" aria-live="polite">{message && <p className="notice">{message}</p>}{error && <p className="error" role="alert">{error}</p>}</div>
             <div className="panel-foot"><span className="tiny-square" /> GLITCH VS PATCH / ONLINE</div>
           </section>
-          <section className="players-panel panel"><div className="panel-heading"><h2><span className="section-number">02</span> プレイヤー</h2><span className="player-count">{count}<span> / 4</span></span></div><div className="player-grid">{Array.from({ length: 4 }, (_, i) => { const p = snapshot?.players[i]; return <article key={i} className={`player-card ${p ? "occupied" : "empty"} ${p?.team?.toLowerCase() ?? ""}`}><div className="slot-top"><span>P{String(i + 1).padStart(2, "0")}</span>{p && <span className={`player-status ${p.ready ? "ready" : ""}`}>{p.ready ? "✓ READY" : "WAITING"}</span>}</div><div className={`bot bot-${i} ${!p ? "ghost" : ""}`} aria-hidden="true"><span className="antenna" /><div className="bot-face"><i /><i /></div><span className="bot-body">&gt;_</span></div><h3>{p ? p.name : "参加を待っています"}{p?.id === self && <small>YOU</small>}</h3><p className="team-name">{p?.team ? <><b>{p.team}</b><span>{TEAM_ROLE[p.team]}</span></> : p ? "チームは準備完了後に決定" : "OPEN SLOT"}</p>{p && p.id === snapshot?.host && <span className="host-label">HOST</span>}</article>; })}</div><div className="team-explainer"><div><span className="team-dot glitch-dot" /><b>Glitch</b><span>バグを作る</span></div><span className="versus">VS</span><div><span className="team-dot patch-dot" /><b>Patch</b><span>バグを消す</span></div></div><p className="assignment-note">チームは全員の準備完了後、カウントダウン前にランダムで割り当てます。</p></section>
+          <section className="players-panel panel"><div className="panel-heading"><h2><span className="section-number">02</span> プレイヤー</h2><span className="player-count">{count}<span> / 4</span></span></div><div className="player-grid">{Array.from({ length: 4 }, (_, i) => { const p = snapshot?.players[i]; return <article key={i} className={`player-card ${p ? "occupied" : "empty"} ${p?.team?.toLowerCase() ?? ""}`}><div className="slot-top"><span>P{String(i + 1).padStart(2, "0")}</span>{p && <span className={`player-status ${p.ready ? "ready" : ""}`}>{p.ready ? "✓ READY" : "WAITING"}</span>}</div><div className={`bot bot-${i} ${!p ? "ghost" : ""}`} aria-hidden="true"><span className="antenna" /><div className="bot-face"><i /><i /></div><span className="bot-body">&gt;_</span></div><h3>{p ? p.name : "参加を待っています"}{p?.id === self && <small>YOU</small>}</h3><p className="team-name">{p?.team ? <><b>{p.team}</b><span>{TEAM_ROLE[p.team]}</span></> : p ? "チームは準備完了後に決定" : "OPEN SLOT"}</p>{p?.bot&&<span className="cpu-label">CPU</span>}{p && p.id === snapshot?.host && <span className="host-label">HOST</span>}</article>; })}</div><div className="team-explainer"><div><span className="team-dot glitch-dot" /><b>Glitch</b><span>バグを作る</span></div><span className="versus">VS</span><div><span className="team-dot patch-dot" /><b>Patch</b><span>バグを消す</span></div></div><p className="assignment-note">チームは全員の準備完了後、カウントダウン前にランダムで割り当てます。</p></section>
         </div>}
         {!snapshot?.game && terminal}
         <footer className="bottom-note"><span>DEXMAN <span className="mint">/</span> GLITCH VS PATCH</span><p>Glitchは占有率60%を5秒維持。Patchは全除去。時間切れは30%で勝敗を判定。</p></footer>

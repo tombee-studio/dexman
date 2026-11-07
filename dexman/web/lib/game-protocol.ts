@@ -2,14 +2,14 @@
 export type Team = "Glitch" | "Patch";
 export type Skill = "Dash" | "Guard" | "Push";
 export type Direction = "up" | "down" | "left" | "right";
-export const RULES = { version: "dexman-1", width: 13, height: 11, duration: 180000, moveMs: 250, fuseMs: 2000, flameMs: 500, stunMs: 1000, immunityMs: 2000, holdMs: 5000, target: 0.6, timeoutTarget: 0.3, dropChance: 0.3, maxPower: 5, skillMs: { Dash: 8000, Guard: 15000, Push: 10000 } };
+export const RULES = { version: "dexman-2", width: 13, height: 11, duration: 180000, moveMs: 250, fuseMs: 2000, flameMs: 500, stunMs: 1000, immunityMs: 2000, holdMs: 5000, target: 0.6, timeoutTarget: 0.3, dropChance: 0.3, maxPower: 5, skillMs: { Dash: 8000, Guard: 15000, Push: 10000 } };
 export const VECTORS: Record<Direction, [number, number]> = { up: [0,-1], down: [0,1], left: [-1,0], right: [1,0] };
-export type Roster = { id: string; name: string; team: Team; skill: Skill };
-export type Fighter = Roster & { x: number; y: number; slot: number; direction: Direction; connected: boolean; stunnedUntil: number; immuneUntil: number; guardUntil: number; skillReadyAt: number; capacity: number; range: number };
+export type Roster = { id: string; name: string; team: Team; skill: Skill; bot?: boolean };
+export type Fighter = Roster & { x: number; y: number; slot: number; direction: Direction; connected: boolean; stunnedUntil: number; immuneUntil: number; guardUntil: number; skillReadyAt: number; capacity: number; range: number; targetX: number; targetY: number; moving: boolean; inputSequence: number; inputDirection: Direction | null };
 export type Cube = { id: number; owner: string; team: Team; x: number; y: number; placedAt: number; explodeAt: number; range: number };
 export type Blast = { id: number; team: Team; cells: number[]; expiresAt: number };
 export type GameEvent = { id: number; at: number; playerId: string; team: Team | ""; kind: string; text: string };
 export type MatchState = { version: string; matchId: string; width: number; height: number; tiles: number[]; bugs: number[]; items: Record<number, "capacity" | "range">; fighters: Fighter[]; cubes: Cube[]; blasts: Blast[]; events: GameEvent[]; startedAt: number; endsAt: number; holdSince: number | null; bugCount: number; totalFloor: number; winner: Team | ""; reason: string; finishedAt: number };
 export type SkillResult = { ok: boolean; message?: string };
-export const cell = (x: number, y: number) => y * RULES.width + x;
+export const cell = (x: number, y: number) => Math.round(y) * RULES.width + Math.round(x);
 const starts: [number, number][] = [[1,1],[11,9],[11,1],[1,9]];

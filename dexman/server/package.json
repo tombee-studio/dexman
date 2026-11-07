@@ -7,7 +7,7 @@
                 },
     "scripts":  {
                     "start":  "tsx index.ts",
-                    "test":  "tsx --test lobby.test.ts game.test.ts",
+                    "test":  "tsx --test lobby.test.ts game.test.ts movement.test.ts",
                     "smoke":  "tsx smoke.ts"
                 },
     "dependencies":  {

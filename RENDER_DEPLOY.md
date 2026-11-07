@@ -33,9 +33,9 @@ Root Directoryを変更した際の確認画面でも、上記のBuild Command�
 ## 公開後の確認
 
 1. ログに `Frontend ready at /` と表示されることを確認。
-2. `/health` のJSONで `ok: true`、`protocol: 2`、`frontend: true` を確認。
+2. `/health` のJSONで `ok: true`、`protocol: 3`、`frontend: true` を確認。
 3. https://dexman.onrender.com を開き、Dexmanのロビーが表示されることを確認。
-4. 4人でルームに参加し、準備完了後に対戦が始まることを確認。
+4. 1人でルームを作り「CPU3人でテスト」で開始・操作を確認。通常対戦は4人で準備完了後に開始。
 
 `frontend: false` またはログに `Frontend missing` と出る場合は、Root DirectoryとBuild Commandを再確認してください。
 

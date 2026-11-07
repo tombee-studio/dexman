@@ -3,7 +3,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type * as PhaserTypes from "phaser";
 import type { MatchState, Direction, GameEvent } from "../lib/game-protocol";
 import "./arena.css";
-type Props = { game: MatchState; self: string; phase: string; now: number; host: boolean; stale: boolean; logPanel: ReactNode; event: (GameEvent & { matchId: string }) | null; send: (type: string, value?: unknown) => void };
+import { MovementPrediction, sampleMovement, type MotionSample } from "../../shared/movement";
+import { RULES } from "../lib/game-protocol";
+type Props = { game: MatchState; self: string; phase: string; now: number; serverNow: number; clockOffset: number; host: boolean; stale: boolean; logPanel: ReactNode; event: (GameEvent & { matchId: string }) | null; send: (type: string, value?: unknown) => void };
 const COLORS = [0xff7e8c,0x80c5ff,0x8fe392,0xffd479];
 const T=48;
 export default function Arena(props: Props) {
@@ -15,6 +17,7 @@ export default function Arena(props: Props) {
   const [focused,setFocused]=useState(false);
   const [muted,setMuted]=useState(false);
   const audio=useRef<AudioContext | null>(null);
+  const prediction=useRef(new MovementPrediction());
   const me=game.fighters.find(p=>p.id===self && p.connected);
   const ratio=game.bugCount/game.totalFloor*100;
   const seconds=Math.ceil(Math.max(0,game.endsAt-Math.max(now,game.startedAt))/1000);
@@ -42,10 +45,30 @@ export default function Arena(props: Props) {
         graphics!:PhaserTypes.GameObjects.Graphics;
         labels=new Map<string,PhaserTypes.GameObjects.Text>();
         positions=new Map<string,{x:number;y:number}>();
+        samples=new Map<string,MotionSample[]>();
+        lastState:MatchState|null=null;
+        correction={x:0,y:0};
         create(){this.graphics=this.add.graphics();setLoading(false);}
         update(_time:number,delta:number){
           const current=live.current,s=current.game,g=this.graphics;if(!g)return;
-          const time=current.now;g.clear();
+          const time=current.phase==="result"?current.now:Date.now()+current.clockOffset;
+          if(s!==this.lastState){
+            const oldPrediction=prediction.current.position(time,s,RULES.moveMs);
+            for(const p of s.fighters){
+              const history=this.samples.get(p.id)??[];
+              if(!history.length||current.serverNow>history[history.length-1].at)history.push({at:current.serverNow,body:{...p}});
+              this.samples.set(p.id,history.slice(-8));
+              if(p.id===current.self)prediction.current.receive(p,current.serverNow);
+            }
+            const nextPrediction=prediction.current.position(time,s,RULES.moveMs);
+            if(oldPrediction&&nextPrediction){
+              this.correction.x+=oldPrediction.x-nextPrediction.x;this.correction.y+=oldPrediction.y-nextPrediction.y;
+              if(Math.hypot(this.correction.x,this.correction.y)>1.5)this.correction={x:0,y:0};
+            }
+            this.lastState=s;
+          }
+          const fade=Math.exp(-Math.min(delta,100)/70);this.correction.x*=fade;this.correction.y*=fade;
+          g.clear();
           for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){
             const i=y*s.width+x,px=x*T,py=y*T,tile=s.tiles[i];
             g.fillStyle((x+y)%2?0x18231d:0x1c2921);g.fillRect(px,py,T-1,T-1);
@@ -82,8 +105,12 @@ export default function Arena(props: Props) {
           for(const p of s.fighters){
             let label=this.labels.get(p.id);if(!label){label=this.add.text(0,0,"",{fontFamily:"monospace",fontSize:"10px",color:"#ffffff",stroke:"#0a1710",strokeThickness:3}).setOrigin(.5).setDepth(10);this.labels.set(p.id,label);}
             label.setVisible(p.connected);if(!p.connected)continue;
-            const target={x:p.x*T+24,y:p.y*T+24},pos=this.positions.get(p.id)??target;
-            const lerp=Math.min(1,delta/65);pos.x+=(target.x-pos.x)*lerp;pos.y+=(target.y-pos.y)*lerp;this.positions.set(p.id,pos);
+            const control=p.id===current.self;
+            const predicted=control&&current.phase==="playing"&&!current.stale?prediction.current.position(time,s,RULES.moveMs):null;
+            const remote=!control&&current.phase==="playing"?sampleMovement(this.samples.get(p.id)??[],time-100,s,RULES.moveMs):null;
+            const position=predicted??remote??p;
+            const pos={x:(position.x+(predicted?this.correction.x:0))*T+24,y:(position.y+(predicted?this.correction.y:0))*T+24};
+            this.positions.set(p.id,pos);
             const {x,y}=pos,color=COLORS[p.slot],stunned=p.stunnedUntil>time;
             const opacity=p.immuneUntil>time&&!stunned?(Math.sin(time/65)>0?.45:1):1;
             g.fillStyle(0x000000,.35);g.fillEllipse(x,y+15,31,13);
@@ -108,7 +135,11 @@ export default function Arena(props: Props) {
     const keys=new Map<string,Direction>();
     const directions:Record<string,Direction>={ArrowUp:"up",KeyW:"up",ArrowDown:"down",KeyS:"down",ArrowLeft:"left",KeyA:"left",ArrowRight:"right",KeyD:"right"};
     const canControl=()=>live.current.phase==="playing"&&!live.current.stale&&!!live.current.game.fighters.find(p=>p.id===live.current.self&&p.connected);
-    function transmit(){const direction=[...keys.values()].at(-1)??null;live.current.send("input",direction);}
+    function transmit(){
+      const direction=[...keys.values()].at(-1)??null;
+      const command=prediction.current.input(direction,Date.now()+live.current.clockOffset);
+      live.current.send("input",{direction,sequence:command.sequence});
+    }
     function down(e:KeyboardEvent){
       if(!directions[e.code]&&!['Space','ShiftLeft','ShiftRight'].includes(e.code))return;
       e.preventDefault();if(!canControl())return;
@@ -116,7 +147,7 @@ export default function Arena(props: Props) {
       else if(!e.repeat)live.current.send(e.code==="Space"?"place":"skill");
     }
     function up(e:KeyboardEvent){if(directions[e.code]){e.preventDefault();keys.delete(e.code);transmit();}}
-    function release(){keys.clear();live.current.send("input",null);setFocused(false);}
+    function release(){keys.clear();transmit();setFocused(false);}
     const timer=setInterval(()=>{if(keys.size&&canControl())transmit();},100);
     el.addEventListener("keydown",down);el.addEventListener("keyup",up);el.addEventListener("blur",release);window.addEventListener("blur",release);
     return()=>{clearInterval(timer);el.removeEventListener("keydown",down);el.removeEventListener("keyup",up);el.removeEventListener("blur",release);window.removeEventListener("blur",release);release();};

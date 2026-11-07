@@ -11,7 +11,11 @@ class DexRoom extends Room {
   limits = new Map<string, { at: number; count: number }>();
   onCreate() {
     this.onMessage("ready", (c,v: unknown) => { if (this.allowed(c)) { this.lobby.ready(c.sessionId,v,Date.now()); this.publish(); } });
+    this.onMessage("debugStart",c=>{if(this.allowed(c)){this.lobby.debugStart(c.sessionId,Date.now());this.publish();}});
+    this.onMessage("endDebug",c=>{if(this.allowed(c)){this.lobby.endDebug(c.sessionId);this.publish();}});
+    this.onMessage("removeBots",c=>{if(this.allowed(c)){this.lobby.removeBots(c.sessionId);this.publish();}});
     this.onMessage("selectSkill", (c,v: unknown) => { if (this.allowed(c)) { this.lobby.selectSkill(c.sessionId,v); this.publish(); } });
+    this.onMessage("ping",(c,v:unknown)=>{if(this.allowed(c)&&typeof v==="number"&&Number.isFinite(v))c.send("pong",{sentAt:v,serverNow:Date.now()});});
     this.onMessage("input", (c,v: unknown) => { if (this.allowed(c) && this.lobby.phase === "playing") this.lobby.match?.input(c.sessionId,v,Date.now()); });
     this.onMessage("place", c => { if (this.allowed(c) && this.lobby.phase === "playing") this.lobby.match?.place(c.sessionId,Date.now()); });
     this.onMessage("skill", c => {
@@ -54,7 +58,7 @@ const server = new Server({
  express:app=>{
   app.get("/health",(_req:unknown,res:ServerResponse)=>{
    res.setHeader("Access-Control-Allow-Origin","*");res.setHeader("Cache-Control","no-store");res.setHeader("Content-Type","application/json");
-   res.end(JSON.stringify({ok:true,service:"dexman",stage:"game",protocol:2,frontend:existsSync(frontendIndex)}));
+   res.end(JSON.stringify({ok:true,service:"dexman",stage:"game",protocol:3,frontend:existsSync(frontendIndex)}));
   });
   app.use("/assets",express.static(fileURLToPath(new URL("../web/dist/assets/",import.meta.url)),{immutable:true,maxAge:"1y"}));
   app.use(express.static(frontendRoot,{index:"index.html",maxAge:0}));

@@ -18,13 +18,13 @@ test("13x11の対称マップ、逃げ道、初期バグと固定分母", () => 
   assert.ok(m.state.bugCount > 0);
   assert.equal(m.state.tiles[cell(1,1)],0); assert.equal(m.state.tiles[cell(2,1)],0); assert.equal(m.state.tiles[cell(1,2)],0);
 });
-test("移動は250msごと、壁を通過しない、不正方向を受け付けない", () => {
-  const m = arena(), p = m.state.fighters[0];
-  m.input(p.id,"right",1000); m.step(1000); assert.equal(p.x,2);
-  m.step(1100); assert.equal(p.x,2);
-  m.input(p.id,"right",1250); m.step(1250); assert.equal(p.x,3);
-  m.input(p.id,"up",1500); m.step(1500); assert.equal(p.y,1);
-  m.input(p.id,"__proto__",1750); m.step(1750); assert.equal(p.y,1);
+test("移動は連続的に毎秒4マス進み、壁と不正方向を検証する", () => {
+ const m=arena(),p=m.state.fighters[0];m.input(p.id,"right",1000);m.step(1000);m.step(1050);
+ assert.ok(Math.abs(p.x-1.2)<1e-6);
+ for(let t=1100;t<=1250;t+=50)m.step(t);assert.equal(p.x,2);
+ m.input(p.id,"right",1250);for(let t=1300;t<=1500;t+=50)m.step(t);assert.equal(p.x,3);
+ m.input(p.id,"up",1500);m.step(1550);assert.equal(p.y,1);
+ m.input(p.id,"__proto__",1550);m.step(1600);assert.equal(p.y,1);
 });
 test("2秒後に十字爆発、重複生成なし、設置上限と自爆スタンなし", () => {
   const m = arena(), p = m.state.fighters[0]; p.x=3; p.y=3;
@@ -81,9 +81,9 @@ test("Pushは最大3マス、壁で停止し、キューブの時限を変更し
 });
 test("アイテムは1段階強化、最大5まで、爆風で消えない", () => {
   const m=arena(),p=m.state.fighters[0];p.capacity=5;
-  m.state.items[cell(2,1)]="capacity";m.input(p.id,"right",1000);m.step(1000);
+  m.state.items[cell(2,1)]="capacity";m.input(p.id,"right",1000);for(let t=1000;t<=1250;t+=50)m.step(t);
   assert.equal(p.capacity,5);assert.equal(m.state.items[cell(2,1)],undefined);
-  m.state.items[cell(3,1)]="range";m.input(p.id,"right",1250);m.step(1250);assert.equal(p.range,3);
+  m.state.items[cell(3,1)]="range";m.input(p.id,"right",1250);for(let t=1300;t<=1500;t+=50)m.step(t);assert.equal(p.range,3);
 });
 test("60%以上を連続5秒維持して勝利、途中で下がれば維持秒数をリセット", () => {
   const m=arena();const cells=m.state.tiles.flatMap((t,i)=>t===0?[i]:[]);
@@ -111,4 +111,17 @@ test("持続中の爆風へ置いたキューブは時限を待たず誘爆す�
  m.state.blasts.push({id:90,team:p.team,cells:[cell(p.x,p.y)],expiresAt:1500});
  assert.ok(m.place(p.id,1000));m.step(1050);assert.equal(m.state.cubes.length,0);
  assert.equal(m.state.blasts.length,2);
+});
+test("入力の重複と古い順序を無視し、移動中のキューブは整数マスへ設置する",()=>{
+ const m=arena(),p=m.state.fighters[0];m.input(p.id,{direction:"right",sequence:2},1000);
+ m.input(p.id,{direction:"left",sequence:1},1001);m.input(p.id,{direction:"left",sequence:2},1002);
+ m.step(1000);m.step(1050);assert.equal(p.inputDirection,"right");assert.equal(p.inputSequence,2);
+ assert.ok(m.place(p.id,1050));assert.ok(Number.isInteger(m.state.cubes[0].x));
+ assert.ok(Number.isInteger(m.state.cubes[0].y));assert.equal(m.state.cubes[0].x,1);
+});
+test("50ms未満の短いタップもサーバーの更新間で消えず1マス移動する",()=>{
+ const m=arena(),p=m.state.fighters[0];m.step(1000);
+ m.input(p.id,{direction:"right",sequence:1},1010);m.input(p.id,{direction:null,sequence:2},1020);
+ for(let t=1050;t<=1500;t+=50)m.step(t);
+ assert.equal(p.x,2);assert.equal(p.moving,false);assert.equal(p.inputDirection,null);
 });

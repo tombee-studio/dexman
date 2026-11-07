@@ -8,7 +8,7 @@ const rooms:Room[]=[],states=new Map<string,Snapshot>(),events:GameEvent[]=[],no
 async function wait(check:()=>boolean,label:string){const end=Date.now()+15000;while(!check()){if(Date.now()>end)throw new Error(`Timeout: ${label}`);await new Promise(r=>setTimeout(r,40));}}
 function track(room:Room){rooms.push(room);notices.set(room.sessionId,[]);room.onMessage("snapshot",(s:Snapshot)=>states.set(room.sessionId,s));room.onMessage("event",(e:GameEvent)=>{if(room===rooms[0])events.push(e);});room.onMessage("notice",(s:string)=>notices.get(room.sessionId)!.push(s));room.send("snapshot");return room;}
 try{
- const health=await(await fetch(`${endpoint}/health`)).json() as {protocol:number};assert.equal(health.protocol,2);
+ const health=await(await fetch(`${endpoint}/health`)).json() as {protocol:number};assert.equal(health.protocol,3);
  const host=track(await new Client(endpoint).create("dexman",{name:"Game QA 1"}));
  for(let i=2;i<=4;i++)track(await new Client(endpoint).joinById(host.roomId,{name:`Game QA ${i}`}));
  await wait(()=>rooms.every(r=>states.get(r.sessionId)?.players.length===4),"four players");
