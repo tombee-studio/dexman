@@ -1,44 +1,53 @@
 import { Server, Room, type Client } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { Lobby } from "./lobby.js";
-
+import type { ServerResponse } from "node:http";
 class DexRoom extends Room {
-  maxClients = 4;
+  maxClients = 8;
   lobby = new Lobby();
-  lastReady = new Map<string, number>();
+  limits = new Map<string, { at: number; count: number }>();
   onCreate() {
-    this.onMessage("ready", (client, value: unknown) => {
-      const now = Date.now();
-      if (now - (this.lastReady.get(client.sessionId) ?? 0) < 150) return;
-      this.lastReady.set(client.sessionId, now);
-      const before = this.lobby.phase;
-      this.lobby.ready(client.sessionId, value, now);
-      if (before !== this.lobby.phase) this.lock();
-      this.publish();
+    this.onMessage("ready", (c,v: unknown) => { if (this.allowed(c)) { this.lobby.ready(c.sessionId,v,Date.now()); this.publish(); } });
+    this.onMessage("selectSkill", (c,v: unknown) => { if (this.allowed(c)) { this.lobby.selectSkill(c.sessionId,v); this.publish(); } });
+    this.onMessage("input", (c,v: unknown) => { if (this.allowed(c) && this.lobby.phase === "playing") this.lobby.match?.input(c.sessionId,v,Date.now()); });
+    this.onMessage("place", c => { if (this.allowed(c) && this.lobby.phase === "playing") this.lobby.match?.place(c.sessionId,Date.now()); });
+    this.onMessage("skill", c => {
+      if (!this.allowed(c) || this.lobby.phase !== "playing") return;
+      const result = this.lobby.match?.skill(c.sessionId,Date.now());
+      if (result && !result.ok) c.send("notice",result.message);
     });
-    this.onMessage("snapshot", client => client.send("snapshot", this.lobby.snapshot(this.roomId, Date.now())));
-    this.setSimulationInterval(() => { this.lobby.tick(Date.now()); this.publish(); }, 100);
+    this.onMessage("rematch", c => { if (this.allowed(c)) { this.lobby.rematch(c.sessionId); this.publish(); } });
+    this.onMessage("snapshot", c => { if (this.allowed(c)) c.send("snapshot",this.lobby.snapshot(this.roomId,Date.now())); });
+    let tick = 0;
+    this.setSimulationInterval(() => {
+      const before = this.lobby.phase;
+      this.lobby.tick(Date.now());
+      if ((++tick%2 === 0 && ["playing","countdown"].includes(this.lobby.phase)) || before !== this.lobby.phase) this.publish();
+      this.flushEvents();
+    },50);
   }
-  onJoin(client: Client, options: { name?: unknown }) {
-    try { this.lobby.join(client.sessionId, options.name); }
-    catch (error) { client.leave(4000, (error as Error).message); return; }
+  allowed(c: Client) {
+    const now = Date.now(); let rate = this.limits.get(c.sessionId);
+    if (!rate || now-rate.at >= 1000) { rate = { at: now, count: 0 }; this.limits.set(c.sessionId,rate); }
+    return ++rate.count <= 30;
+  }
+  onAuth(_c: Client, options: { name?: unknown }) {
+    if (typeof options.name !== "string" || !options.name.trim() || options.name.trim().length > 20) throw new Error("名前は1〜20文字で入力してください。");
+    return true;
+  }
+  onJoin(c: Client, options: { name?: unknown }) {
+    try { this.lobby.join(c.sessionId,options.name); }
+    catch (error) { c.leave(4000,(error as Error).message); return; }
     this.publish();
   }
-  onLeave(client: Client) {
-    this.lastReady.delete(client.sessionId);
-    this.lobby.leave(client.sessionId);
-    if (this.lobby.phase === "waiting") this.unlock();
-    this.publish();
-  }
-  publish() { this.broadcast("snapshot", this.lobby.snapshot(this.roomId, Date.now())); }
+  onLeave(c: Client) { this.limits.delete(c.sessionId); this.lobby.leave(c.sessionId); this.publish(); this.flushEvents(); }
+  flushEvents() { for (const event of this.lobby.match?.takeEvents() ?? []) this.broadcast("event",{ ...event, matchId: this.lobby.match?.state.matchId }); }
+  publish() { const snapshot = this.lobby.snapshot(this.roomId,Date.now()); this.broadcast("snapshot",{ ...snapshot, game: snapshot.game ? { ...snapshot.game, events: [] } : null }); }
 }
-
 const server = new Server({
-  transport: new WebSocketTransport({ pingInterval: 2000, pingMaxRetries: 2 }),
-  express: app => {
-    app.get("/health", (_req, res) => res.set("Access-Control-Allow-Origin", "*").set("Cache-Control", "no-store").json({ ok: true, service: "dexman-lobby", stage: "connection-test" }));
-  },
+  transport: new WebSocketTransport({ pingInterval: 2000, pingMaxRetries: 2, maxPayload: 4096 }),
+  express: app => { app.get("/health", (_req: unknown,res: ServerResponse) => { res.setHeader("Access-Control-Allow-Origin","*"); res.setHeader("Cache-Control","no-store"); res.setHeader("Content-Type","application/json"); res.end(JSON.stringify({ ok: true, service: "dexman", stage: "game", protocol: 2 })); }); },
 });
-server.define("dexman", DexRoom);
-await server.listen(Number(process.env.PORT ?? 2567), "0.0.0.0");
-console.log("Dexman lobby listening on port", process.env.PORT ?? 2567);
+server.define("dexman",DexRoom);
+await server.listen(Number(process.env.PORT ?? 2567),"0.0.0.0");
+console.log("Dexman game listening on port",process.env.PORT ?? 2567);

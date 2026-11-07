@@ -1,10 +1,10 @@
-# Dexman ロビー接続試作のRender Free公開
+# Dexman ゲームサーバーのRender Free公開
 
 リポジトリ：https://github.com/tombee-studio/dexman
 
 ## 現在の実装範囲
 
-4人のルーム参加、準備完了、Glitch／Patchの2対2自動割り当て、3秒カウントダウン、開始前切断時のキャンセル、ホスト引き継ぎ、ヘルスチェック。対戦ゲーム・フロント画面・観戦・再戦はまだ実装していない。起動と4クライアント接続テストは成功。フロントは `dexman/web` に実装した。Renderの公開URLは https://dexman.onrender.com 。
+4人のルーム、自動チーム分け、移動、キューブ・誘爆、バグ生成／除去、3種のスキル、スタン・強化、勝敗・再戦、途中参加の観戦を実装。フロントは `dexman/web`、サーバーは `dexman/server`。公開URLは https://dexman.onrender.com 。
 
 ## Renderで設定する値
 
@@ -28,9 +28,9 @@ DBやディスクなどの追加サービスは作成しない。画面は別途
 ## 公開後の確認
 
 1. Renderのログで起動エラーがないことを確認する。
-2. Renderが発行したURLの `/health` を開き、`ok: true` のJSONが返ることを確認する。
+2. Renderが発行したURLの `/health` を開き、`ok: true`、`stage: "game"`、`protocol: 2` のJSONが返ることを確認する。
 3. Node.js 22以上の環境で `dexman/server` に移動し、`npm ci`、`npm test` を実行する。
-4. PowerShellでは `$env:SERVER_URL = 'https://実際のサービス名.onrender.com'` を設定して `npm run smoke` を実行する。サーバー名は実際のRender応答からコピーする。
+4. PowerShellでは `$env:SERVER_URL = 'https://実際のサービス名.onrender.com'` を設定して `node --import tsx game-smoke.ts` を実行する。サーバー名は実際のRender応答からコピーする。
 5. 4クライアントの参加、同じ2対2割り当て、切断キャンセル、再参加後のカウントダウンを確認する。
 
 スリープ復帰には約1分かかるため、最初にhealthへアクセスしてから接続テストを行う。再起動するとメモリ上のルームは失われる。
