@@ -1,0 +1,1 @@
+{"name":"dexman","private":true,"type":"module","engines":{"node":">=22.13.0 <23"},"workspaces":["server","web"],"scripts":{"build":"npm run build --workspace dexman-web","start":"npm run start --workspace dexman-server","test":"npm run test --workspace dexman-server","typecheck":"tsc --noEmit --project server/tsconfig.json && npm run typecheck --workspace dexman-web"}}

@@ -1,40 +1,46 @@
-# Dexman ゲームサーバーのRender Free公開
+# Dexman フロント・対戦サーバーをRender Freeへまとめて公開
 
 リポジトリ：https://github.com/tombee-studio/dexman
+公開先：https://dexman.onrender.com
 
-## 現在の実装範囲
+## 既存のdexmanサービスで変更する設定
 
-4人のルーム、自動チーム分け、移動、キューブ・誘爆、バグ生成／除去、3種のスキル、スタン・強化、勝敗・再戦、途中参加の観戦を実装。フロントは `dexman/web`、サーバーは `dexman/server`。公開URLは https://dexman.onrender.com 。
+新しいサービスを作成する必要はありません。RenderのdexmanサービスのSettingsから次を設定してください。Blueprint管理でないサービスでは、GitHub上のrender.yamlを書き換えるだけでは設定は更新されません。
 
-## Renderで設定する値
-
-Renderの「New → Web Service」で指定リポジトリを接続する。通常のWeb Service作成でも、ルートのrender.yamlを使うBlueprintでも設定できる。
-
-| 項目 | 値 |
+| 項目 | 設定値 |
 |---|---|
-| Name | dexman-server |
 | Runtime | Node |
-| Root Directory | dexman/server |
-| Build Command | npm ci |
+| Branch | main |
+| Root Directory | dexman |
+| Build Command | npm ci --include=dev && npm run build |
 | Start Command | npm start |
 | Instance Type | Free |
 | Health Check Path | /health |
 | NODE_VERSION | 22.22.0 |
 
-DBやディスクなどの追加サービスは作成しない。画面は別途GPT Sitesへ公開する。
+Root Directoryを変更した際の確認画面でも、上記のBuild CommandとStart Commandを入力してください。保存後、Manual Deploy → Deploy latest commitで再デプロイします。
 
-無料インスタンスでも帯域・ビルド枠の超過は別扱い。0円で止めたい場合は支払い方法を登録していないことを確認する。既に登録済みなら、課金設定を確認してから公開する。有料プランへは変更しない。
+従来の `dexman/server` をRoot Directoryにしたままだと、Renderでは兄弟フォルダーの `web` が利用できず、画面のビルド・配信ができません。[Render公式のRoot Directory説明](https://render.com/docs/monorepo-support)
+
+## 構成
+
+- `dexman/package.json`：npmワークスペース。serverとwebを一括インストール。
+- `web`：React・Vite・Phaser。npm run buildで静的なdistを生成。
+- `server`：Node.js・Colyseus・Express。web/distの画面と素材を配信し、同じポートでWebSocket対戦も処理。
+- 画面・招待URL・対戦通信はすべて同一のRender URL。
+- 追加のDB・有料インスタンス・Sitesは不要。
 
 ## 公開後の確認
 
-1. Renderのログで起動エラーがないことを確認する。
-2. Renderが発行したURLの `/health` を開き、`ok: true`、`stage: "game"`、`protocol: 2` のJSONが返ることを確認する。
-3. Node.js 22以上の環境で `dexman/server` に移動し、`npm ci`、`npm test` を実行する。
-4. PowerShellでは `$env:SERVER_URL = 'https://実際のサービス名.onrender.com'` を設定して `node --import tsx game-smoke.ts` を実行する。サーバー名は実際のRender応答からコピーする。
-5. 4クライアントの参加、同じ2対2割り当て、切断キャンセル、再参加後のカウントダウンを確認する。
+1. ログに `Frontend ready at /` と表示されることを確認。
+2. `/health` のJSONで `ok: true`、`protocol: 2`、`frontend: true` を確認。
+3. https://dexman.onrender.com を開き、Dexmanのロビーが表示されることを確認。
+4. 4人でルームに参加し、準備完了後に対戦が始まることを確認。
 
-スリープ復帰には約1分かかるため、最初にhealthへアクセスしてから接続テストを行う。再起動するとメモリ上のルームは失われる。
+`frontend: false` またはログに `Frontend missing` と出る場合は、Root DirectoryとBuild Commandを再確認してください。
 
-Render連携からの公開にはアカウント接続が必要。パスワードやAPIキーをチャットに貼る必要はない。
+## 無料枠
 
-参照：[無料枠](https://render.com/docs/free)、[Node.js公開手順](https://render.com/docs/deploy-node-express-app)、[Blueprint](https://render.com/docs/blueprint-spec)。
+Instance TypeはFreeを維持します。通信量・ビルド時間などの無料枠上限は別途あります。無通信時はスリープし、最初のアクセスに時間がかかる場合があります。再デプロイで進行中の試合は失われます。
+
+Render連携は未接続のため、現在の管理画面の設定はこの作業環境から変更できません。上記の設定変更はアカウント所有者が行ってください。パスワードやAPIキーをチャットに貼る必要はありません。

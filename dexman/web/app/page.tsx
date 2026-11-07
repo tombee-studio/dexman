@@ -9,7 +9,7 @@ import type { MatchState, GameEvent, Skill } from "../lib/game-protocol";
 type Player = { id: string; name: string; ready: boolean; team: "Glitch" | "Patch" | ""; skill: Skill };
 type Snapshot = { roomId: string; protocol: number; spectators: Player[]; game: MatchState | null; phase: "waiting" | "countdown" | "playing" | "result"; host: string; players: Player[]; startsAt: number; serverNow: number };
 type Log = { id: number; time: string; text: string };
-const ENDPOINT = process.env.NEXT_PUBLIC_GAME_SERVER || "https://dexman.onrender.com";
+const ENDPOINT = import.meta.env.VITE_GAME_SERVER || window.location.origin;
 const TEAM_ROLE = { Glitch: "バグを作る", Patch: "バグを消す" };
 
 export default function Home() {

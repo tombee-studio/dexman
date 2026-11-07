@@ -2,9 +2,9 @@
 
 PCブラウザから4人で遊ぶ2対2オンラインゲーム。Glitchはバグを広げ、Patchはバグを除去します。
 
-- サイト： https://dexman-lobby-tombee.tomobrown.chatgpt.site （既存の共有範囲を維持）
-- 対戦サーバー： https://dexman.onrender.com （Render Free）
-- フロント： `dexman/web` — React／Vinext／Phaser 3.90
+- ゲームURL： https://dexman.onrender.com （Renderの設定変更後、画面と対戦を同一URLで配信）
+- ホスティング：Render Freeの既存サービス1台
+- フロント： `dexman/web` — React／Vite／Phaser 3.90
 - サーバー： `dexman/server` — Node.js 22／Colyseus
 
 ## 遊び方
@@ -23,26 +23,22 @@ Glitchはバグ占有率60％以上を5秒維持すると勝利。Patchは全除
 
 ## 開発と検証
 
-Node.js 22.13以上（22系）を使用します。
+Node.js 22.13以上（22系）を使用します。リポジトリ内のdexmanディレクトリで実行してください。
 
 ```text
-cd dexman/server
-npm ci
+cd dexman
+npm ci --include=dev
+npm run build
+npm run typecheck
 npm test
 npm start
 ```
 
-別ターミナルの同ディレクトリから `node --import tsx game-smoke.ts` を実行すると、4人＋観戦者で移動・爆発・スキル・状態同期を検証します。`SERVER_URL` を指定すると公開サーバーへ接続します。
+http://localhost:2567 で画面と対戦サーバーの両方を利用できます。別ターミナルで `cd dexman/server` → `node --import tsx game-smoke.ts` を実行すると、4人＋観戦者の通信を検証します。
 
-```text
-cd dexman/web
-npm run install:ci
-npm run dev
-```
+画面の開発プレビューはdexmanディレクトリから `npm run dev --workspace dexman-web`。開発時は既定で http://127.0.0.1:2567 のゲームサーバーへ接続します。本番ビルドでは画面と同じオリジンに接続します。別の接続先を指定する場合だけ `VITE_GAME_SERVER` をビルド・起動時に設定します。
 
-画面は既定で公開Renderへ接続。ローカルのゲームサーバーへ接続する場合は、起動時に `NEXT_PUBLIC_GAME_SERVER=http://127.0.0.1:2567` を設定します。
-
-型チェックは各ディレクトリで `npx tsc --noEmit`。画面のビルドは `npm run build`。`server/game.ts` の公開型・設定を変更したら、webディレクトリで `node scripts/sync-game-protocol.mjs` を実行して、Sites単独ソースにも必要な生成済み型を更新します。
+`server/game.ts` の公開型・設定を変更したら `npm run sync:protocol --workspace dexman-web` を実行してください。依存バージョンは `dexman/package-lock.json` を一括管理の基準にします。
 
 ## 運用
 
