@@ -26,6 +26,7 @@ export class Match {
   private blastSequence = 0;
   constructor(roster: Roster[], now: number, private random = Math.random) {
     this.lastStep = now;
+    const duration = roster.some(p=>p.bot) ? 15000 : RULES.duration;
     const tiles = Array<number>(RULES.width * RULES.height).fill(0);
     for (let y = 0; y < RULES.height; y++) for (let x = 0; x < RULES.width; x++) {
       const index = cell(x,y), a = Math.min(x,12-x), b = Math.min(y,10-y);
@@ -41,8 +42,8 @@ export class Match {
       const a = key%13, b = Math.floor(key/13);
       for (const index of new Set([cell(a,b),cell(12-a,b),cell(a,10-b),cell(12-a,10-b)])) if (tiles[index] === 0) { bugs[index] = 1; seeded++; }
     }
-    this.state = { version: RULES.version, matchId: `${now}`, width: 13, height: 11, tiles, bugs, items: {}, fighters: roster.map((p,i) => ({ ...p, x: starts[i][0], y: starts[i][1], slot: i, direction: i%2 ? "left" : "right", connected: true, stunnedUntil: 0, immuneUntil: 0, guardUntil: 0, skillReadyAt: 0, capacity: 1, range: 2, targetX: starts[i][0], targetY: starts[i][1], moving: false, inputSequence: 0, inputDirection: null })), cubes: [], blasts: [], events: [], startedAt: now, endsAt: now+RULES.duration, holdSince: null, bugCount: seeded, totalFloor: tiles.filter(t => t !== 1).length, winner: "", reason: "", finishedAt: 0 };
-    this.emit(null, now, "start", "run match --teams=Glitch,Patch --duration=180s");
+    this.state = { version: RULES.version, matchId: `${now}`, width: 13, height: 11, tiles, bugs, items: {}, fighters: roster.map((p,i) => ({ ...p, x: starts[i][0], y: starts[i][1], slot: i, direction: i%2 ? "left" : "right", connected: true, stunnedUntil: 0, immuneUntil: 0, guardUntil: 0, skillReadyAt: 0, capacity: 1, range: 2, targetX: starts[i][0], targetY: starts[i][1], moving: false, inputSequence: 0, inputDirection: null })), cubes: [], blasts: [], events: [], startedAt: now, endsAt: now+duration, holdSince: null, bugCount: seeded, totalFloor: tiles.filter(t => t !== 1).length, winner: "", reason: "", finishedAt: 0 };
+    this.emit(null, now, "start", `run match --teams=Glitch,Patch --duration=${duration/1000}s`);
   }
   private emit(p: Fighter | null, now: number, kind: string, text: string) {
     const event: GameEvent = { id: ++this.sequence, at: now, playerId: p?.id ?? "", team: p?.team ?? "", kind, text };
